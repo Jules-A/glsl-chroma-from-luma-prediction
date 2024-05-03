@@ -103,7 +103,7 @@ vec4 hook() {
 
 float comp_wd(vec2 v) {
     float x2 = v.x * v.x + v.y * v.y;
-    return exp(-2.0 * x2 / gstr);
+    return exp(-2.0 * x2 / guassian_str);
 }
 
 vec4 hook() {
@@ -139,7 +139,7 @@ vec4 hook() {
 
 float comp_wd(vec2 v) {
     float x2 = v.x * v.x + v.y * v.y;
-    return exp(-2.0 * x2 / gaussian_str);
+    return exp(-2.0 * x2 / guassian_str);
 }
 
 vec4 hook() {
