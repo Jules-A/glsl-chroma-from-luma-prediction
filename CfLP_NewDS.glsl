@@ -20,57 +20,42 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+//Recommended for 2x Luma scaling only
+
 //!PARAM cfl_antiring
 //!DESC CfL Antiring Parameter
 //!TYPE float
 //!MINIMUM 0.0
 //!MAXIMUM 1.0
-0.83
+0.86
 
 //!PARAM gaussian_str
 //!DESC Gaussian Strength
 //!TYPE float
 //!MINIMUM 0.0
-0.5825
+0.5625
 
 //!HOOK CHROMA
 //!BIND LUMA
 //!BIND HOOKED
 //!SAVE LUMA_LOWRES
-//!WIDTH LUMA.w 2 /
-//!HEIGHT LUMA.h 2 /
+//!WIDTH LUMA.w 2.0 /
+//!HEIGHT LUMA.h 2.0 /
 //!WHEN LUMA.w CHROMA.w >
-//!DESC CFL Downscaling Luma 1 (HermitexFSRxJinc)
+//!DESC CFL Downscaling Luma 1 (HermitexFSR)
 
-#define M_PI 3.1415927 // pi
-#define M_PI_4 0.7853982 // pi/4
-#define M_2_PI 0.6366198 // 2/pi
-#define M_SQRT2 1.4142136 // sqrt(2)
-#define EPS 1e-6
-
-//Credit Garamond13 for jinc code
-float bessel_J1(float x)
-{
-  if (x < 2.2931157)
-      return x / 2.0 - x * x * x / 16.0 + x * x * x * x * x / 384.0 - x * x * x * x * x * x * x / 18432.0;
-  else
-      return sqrt(M_2_PI / x) * (1.0 + 0.1875 / (x * x) - 0.1933594 / (x * x * x * x)) * cos(x - 3.0 * M_PI_4 + 0.375 / x - 0.1640625 / (x * x * x));
-}
-
-#define jinc(x) ((x < EPS) ? 1.0 : (2.0 * bessel_J1(M_PI * x) / (M_PI * x)))
 #define fsr(x) (25.0 / 16.0 * pow(2.0 / 5.0 * x - 1.0, 2.0) - (25.0 / 16.0 - 1.0)) * pow(1.0 / 4.0 * x - 1.0, 2.0)
 #define hermite(x, y) smoothstep(0.0, 1.0, 1.0 - ((x) / (y + 0.5)))
 
 vec4 hook() {
-    float factor = ceil(2);
-    //float factor = ceil(LUMA_size.x / HOOKED_size.x);
+    float factor = ceil(2.0);
     ivec2 posx = ivec2(int(ceil(-factor / 2.0 - 0.5)), int(floor(factor / 2.0 - 0.5)));
     float output_luma, wt, w, d, off = 0.0;
     bool fresh = false; //Pre-set so first sample is fresh
     
     for (int dx = posx.x; dx <= posx.y; dx++) {
         d = dx + 0.5;
-        wt += w = hermite(d, posx.y) * fsr((d/2)/factor) * jinc(d/factor*1.2196699);
+        wt += w = hermite(d, posx.y) * fsr((d/2)/factor);
         if (w == 0.0) {
             fresh = false;
             continue;
@@ -96,65 +81,42 @@ vec4 hook() {
 //!BIND HOOKED
 //!SAVE LUMA_LOWRES
 //!WIDTH CHROMA.w
-//!HEIGHT LUMA_LOWRES.h
+//!HEIGHT CHROMA.h
 //!WHEN LUMA.w CHROMA.w >
 //!COMPONENTS 4
 //!DESC CFL Downscaling Luma 2 (Gaussian)
 
 float comp_wd(vec2 v) {
-    float x2 = v.x * v.x + v.y * v.y;
-    return exp(-2.0 * x2 / gaussian_str);
+    return exp(-2.0 * dot(v,v) / gaussian_str);
 }
 
 vec4 hook() {
-    float start  = ceil((LUMA_LOWRES_pos.x - 2.0 * (1.0 / HOOKED_size.x)) * LUMA_LOWRES_size.x - 0.5);
-    float end = floor((LUMA_LOWRES_pos.x + 2.0 * (1.0 / HOOKED_size.x)) * LUMA_LOWRES_size.x - 0.5);
+    float startx  = ceil((LUMA_LOWRES_pos.x - 2.0 * (1.0 / HOOKED_size.x)) * LUMA_LOWRES_size.x - 0.5);
+    float endx = floor((LUMA_LOWRES_pos.x + 2.0 * (1.0 / HOOKED_size.x)) * LUMA_LOWRES_size.x - 0.5);
+    float starty  = ceil((LUMA_LOWRES_pos.y - 2.0 * (1.0 / HOOKED_size.y)) * LUMA_LOWRES_size.y - 0.5);
+    float endy = floor((LUMA_LOWRES_pos.y + 2.0 * (1.0 / HOOKED_size.y)) * LUMA_LOWRES_size.y - 0.5);
 
-    float wt = 0.0;
-    float luma_sum = 0.0;
+    float wt, wd, luma_sum, luma_pix = 0.0;
+    vec2 dist = vec2(0.0);
     vec2 pos = LUMA_LOWRES_pos;
-
-    for (float dx = start.x; dx <= end.x; dx++) {
+    
+    for (float dx = startx; dx <= endx; dx++) {
         pos.x = LUMA_LOWRES_pt.x * (dx + 0.5);
-        vec2 dist = (pos - LUMA_LOWRES_pos) * HOOKED_size;
-        float wd = comp_wd(dist);
-        float luma_pix = LUMA_LOWRES_tex(pos).x;
+        dist = (pos - LUMA_LOWRES_pos) * HOOKED_size;
+        wd = comp_wd(dist);
+        luma_pix = LUMA_LOWRES_tex(pos).x;
         luma_sum += wd * luma_pix;
         wt += wd;
     }
-
-    vec4 output_pix = vec4(luma_sum / wt, 0.0, 0.0, 1.0);
-    return clamp(output_pix, 0.0, 1.0);
-}
-
-//!HOOK CHROMA
-//!BIND LUMA_LOWRES
-//!BIND HOOKED
-//!SAVE LUMA_LOWRES
-//!WIDTH CHROMA.w
-//!HEIGHT CHROMA.h
-//!WHEN LUMA.w CHROMA.w >
-//!COMPONENTS 4
-//!DESC CFL Downscaling Luma 3 (Gaussian)
-
-float comp_wd(vec2 v) {
-    float x2 = v.x * v.x + v.y * v.y;
-    return exp(-2.0 * x2 / gaussian_str);
-}
-
-vec4 hook() {
-    float start  = ceil((LUMA_LOWRES_pos.y - 2.0 * (1.0 / HOOKED_size.y)) * LUMA_LOWRES_size.y - 0.5);
-    float end = floor((LUMA_LOWRES_pos.y + 2.0 * (1.0 / HOOKED_size.y)) * LUMA_LOWRES_size.y - 0.5);
-
-    float wt = 0.0;
-    float luma_sum = 0.0;
-    vec2 pos = LUMA_LOWRES_pos;
-
-    for (float dy = start; dy <= end; dy++) {
+    pos = LUMA_LOWRES_pos;
+    wd, luma_pix = 0.0;
+    dist = vec2(0.0);
+    
+    for (float dy = starty; dy <= endy; dy++) {
         pos.y = LUMA_LOWRES_pt.y * (dy + 0.5);
-        vec2 dist = (pos - LUMA_LOWRES_pos) * HOOKED_size;
-        float wd = comp_wd(dist);
-        float luma_pix = LUMA_LOWRES_tex(pos).x;
+        dist = (pos - LUMA_LOWRES_pos) * HOOKED_size;
+        wd = comp_wd(dist);
+        luma_pix = LUMA_LOWRES_tex(pos).x;
         luma_sum += wd * luma_pix;
         wt += wd;
     }
@@ -183,12 +145,12 @@ float comp_wd(vec2 v) {
     if (d < 1.0) {
         return 1.25 * d3 - 2.25 * d2 + 1.0;
     } else {
-        return -0.75 * d3 + 3.75 * d2 - 6.0 * d + 3.0;
+        return max((-0.75 * d3 + 3.75 * d2 - 6.0 * d + 3.0), -0.1);
     }
 }
 
 vec4 hook() {
-    vec2 mix_coeff = vec2(0.69);
+    vec2 mix_coeff = vec2(0.75);
     vec2 corr_exponent = vec2(8.0);
 
     vec4 output_pix = vec4(0.0, 0.0, 0.0, 1.0);
